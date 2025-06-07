@@ -2,58 +2,99 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>CSV to XLS Converter</title>
+    <title>CSV to XLS Converter (Column Selection)</title>
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
     <style>
-        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; margin-top: 40px; }
-        #drop-area { border: 2px dashed #aaa; padding: 30px; width: 350px; text-align: center; margin-bottom: 20px; }
+        body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
+        #drop-area { border: 2px dashed #aaa; padding: 30px; text-align: center; }
         #file-input { display: none; }
+        .checkbox-list { columns: 2; max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 15px; margin: 20px 0; }
+        .checkbox-list label { display: block; margin-bottom: 7px; font-size: 0.96em;}
         button { margin: 10px 0; padding: 10px 20px; font-size: 1rem; }
+        #output { margin-top: 18px; }
     </style>
 </head>
 <body>
     <h2>CSV to XLS Converter</h2>
     <div id="drop-area">
-        <p>Drag & drop your CSV file here<br>or</p>
+        <p>Drag & drop your CSV file here or</p>
         <button onclick="document.getElementById('file-input').click()">Select File</button>
         <input id="file-input" type="file" accept=".csv">
     </div>
+    <form id="columns-form" style="display:none">
+        <div><b>Select columns to include in XLSX:</b></div>
+        <div id="checkboxes" class="checkbox-list"></div>
+        <button type="submit">Download XLSX</button>
+    </form>
     <div id="output"></div>
     <script>
+        // Preselect these columns
+        const defaultColumns = ["Title", "Variant Inventory Qty", "Variant Price"];
+
+        let parsedData = [];
+        let header = [];
         const dropArea = document.getElementById('drop-area');
         const fileInput = document.getElementById('file-input');
+        const columnsForm = document.getElementById('columns-form');
+        const checkboxesDiv = document.getElementById('checkboxes');
         const output = document.getElementById('output');
 
         function handleFile(file) {
+            output.innerHTML = "";
             const reader = new FileReader();
             reader.onload = (e) => {
                 const csv = e.target.result;
-                const workbook = XLSX.read(csv, { type: 'string' });
-                // If CSV, convert to workbook with one sheet
-                let ws;
-                if (workbook.SheetNames.length > 0) {
-                    ws = workbook.Sheets[workbook.SheetNames[0]];
-                } else {
-                    ws = XLSX.utils.aoa_to_sheet(XLSX.utils.sheet_to_json(csv, {header:1, raw:true}));
-                }
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-                XLSX.writeFile(wb, "output.xlsx");
-                output.innerHTML = "<b>✅ Download started: output.xlsx</b>";
+                // Parse CSV
+                parsedData = XLSX.utils.sheet_to_json(XLSX.read(csv, { type: 'string' }).Sheets.Sheet1, {header:1});
+                if(parsedData.length === 0) { output.innerHTML = "❌ Empty CSV"; return; }
+                header = parsedData[0];
+                // Show checkboxes
+                renderCheckboxes();
             };
             reader.readAsText(file);
         }
 
-        // Drag & drop
+        function renderCheckboxes() {
+            checkboxesDiv.innerHTML = "";
+            header.forEach(col => {
+                const checked = defaultColumns.includes(col) ? 'checked' : '';
+                checkboxesDiv.innerHTML += `
+                    <label>
+                        <input type="checkbox" name="col" value="${col.replace(/"/g, "&quot;")}" ${checked}> ${col}
+                    </label>
+                `;
+            });
+            columnsForm.style.display = '';
+            window.scrollTo(0, columnsForm.offsetTop);
+        }
+
+        // Drag & drop events
         dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.style.background = "#f0f0f0"; });
         dropArea.addEventListener('dragleave', e => { dropArea.style.background = ""; });
         dropArea.addEventListener('drop', e => {
             e.preventDefault(); dropArea.style.background = "";
             if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
         });
-        // File input
+        // File input event
         fileInput.addEventListener('change', e => {
             if (fileInput.files.length) handleFile(fileInput.files[0]);
+        });
+
+        // Form submit
+        columnsForm.addEventListener('submit', function(e){
+            e.preventDefault();
+            // Get selected columns
+            const selected = Array.from(document.querySelectorAll('input[name="col"]:checked')).map(cb => cb.value);
+            if(selected.length === 0) { output.innerHTML = "❌ Select at least one column"; return; }
+            // Filter rows
+            const selectedIdx = selected.map(col => header.indexOf(col));
+            const filteredData = parsedData.map(row => selectedIdx.map(idx => row[idx]));
+            // Create worksheet
+            const ws = XLSX.utils.aoa_to_sheet(filteredData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+            XLSX.writeFile(wb, "output.xlsx");
+            output.innerHTML = "<b>✅ Download started: output.xlsx</b>";
         });
     </script>
 </body>
